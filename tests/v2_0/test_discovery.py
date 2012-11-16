@@ -1,5 +1,6 @@
-import httplib2
+import copy
 import json
+import requests
 
 from keystoneclient.generic import client
 from tests import utils
@@ -8,10 +9,10 @@ from tests import utils
 def to_http_response(resp_dict):
     """
     Utility function to convert a python dictionary
-    (e.g. {'status':status, 'body': body, 'headers':headers}
-    to an httplib2 response.
+    (e.g. {'status_code':status, 'body': body, 'headers':headers}
+    to an requests response.
     """
-    resp = httplib2.Response(resp_dict)
+    resp = requests.Response(resp_dict)
     for k, v in resp_dict['headers'].items():
         resp[k] = v
     return resp
@@ -58,15 +59,16 @@ class DiscoverKeystoneTests(utils.UnauthenticatedTestCase):
         }
 
     def test_get_versions(self):
-        resp = httplib2.Response({
-            "status": 200,
-            "body": json.dumps(self.TEST_RESPONSE_DICT),
+        resp = utils.TestResponse({
+            "status_code": 200,
+            "text": json.dumps(self.TEST_RESPONSE_DICT),
         })
 
-        httplib2.Http.request(self.TEST_ROOT_URL,
-                              'GET',
-                              headers=self.TEST_REQUEST_HEADERS) \
-            .AndReturn((resp, resp['body']))
+        kwargs = copy.copy(self.TEST_REQUEST_BASE)
+        kwargs['headers']=self.TEST_REQUEST_HEADERS
+        requests.request('GET',
+                         self.TEST_ROOT_URL,
+                         **kwargs).AndReturn((resp))
         self.mox.ReplayAll()
 
         cs = client.Client()
@@ -80,15 +82,15 @@ class DiscoverKeystoneTests(utils.UnauthenticatedTestCase):
             ['href'])
 
     def test_get_version_local(self):
-        resp = httplib2.Response({
-            "status": 200,
-            "body": json.dumps(self.TEST_RESPONSE_DICT),
+        resp = utils.TestResponse({
+            "status_code": 200,
+            "text": json.dumps(self.TEST_RESPONSE_DICT),
         })
-
-        httplib2.Http.request("http://localhost:35357",
-                              'GET',
-                              headers=self.TEST_REQUEST_HEADERS) \
-            .AndReturn((resp, resp['body']))
+        kwargs = copy.copy(self.TEST_REQUEST_BASE)
+        kwargs['headers']=self.TEST_REQUEST_HEADERS
+        requests.request('GET',
+                         "http://localhost:35357",
+                         **kwargs).AndReturn((resp))
         self.mox.ReplayAll()
 
         cs = client.Client()

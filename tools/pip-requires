@@ -1,4 +1,5 @@
 argparse
 httplib2>=0.7
 prettytable
+requests
 simplejson
