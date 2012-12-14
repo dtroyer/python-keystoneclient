@@ -69,7 +69,7 @@ class TenantTests(utils.TestCase):
 
         kwargs = copy.copy(self.TEST_REQUEST_BASE)
         kwargs['headers'] = self.TEST_POST_HEADERS
-        kwargs['data']=json.dumps(req_body)
+        kwargs['data'] = json.dumps(req_body)
         requests.request('POST',
                          urlparse.urljoin(self.TEST_URL, 'v2.0/tenants'),
                          **kwargs).AndReturn((resp))
@@ -209,7 +209,7 @@ class TenantTests(utils.TestCase):
 
         kwargs = copy.copy(self.TEST_REQUEST_BASE)
         kwargs['headers'] = self.TEST_POST_HEADERS
-        kwargs['data']=json.dumps(req_body)
+        kwargs['data'] = json.dumps(req_body)
         requests.request('POST',
                          urlparse.urljoin(self.TEST_URL,
                          'v2.0/tenants/4'),
@@ -250,7 +250,7 @@ class TenantTests(utils.TestCase):
 
         kwargs = copy.copy(self.TEST_REQUEST_BASE)
         kwargs['headers'] = self.TEST_POST_HEADERS
-        kwargs['data']=json.dumps(req_body)
+        kwargs['data'] = json.dumps(req_body)
         requests.request('POST',
                          urlparse.urljoin(self.TEST_URL,
                          'v2.0/tenants/4'),

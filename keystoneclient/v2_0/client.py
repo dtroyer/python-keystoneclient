@@ -201,9 +201,7 @@ class Client(client.HTTPClient):
             params['auth']['tenantId'] = tenant_id
         elif tenant_name:
             params['auth']['tenantName'] = tenant_name
-        print "_base_authN-pre-request  url=%s, params=%s, headers=%s" % (url, params, headers)
         resp, body = self.request(url, 'POST', body=params, headers=headers)
-        print "_base_authN-post-request  resp=%s, body=%s" % (resp, body)
         return body['access']
 
     # TODO(heckj): remove entirely in favor of access.AccessInfo and

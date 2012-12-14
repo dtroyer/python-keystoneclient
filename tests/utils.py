@@ -127,6 +127,9 @@ class TestResponse(requests.Response):
         else:
             self.status_code = data
 
+    def __eq__(self, other):
+        return self.__dict__ == other.__dict__
+
     @property
     def text(self):
         return self._text

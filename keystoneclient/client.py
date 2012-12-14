@@ -58,11 +58,6 @@ class HTTPClient(object):
                  cert=None, insecure=False, original_ip=None, debug=False,
                  auth_ref=None, use_keyring=False, force_new_token=False,
                  stale_duration=None):
-        if cert:
-            if key:
-                self.add_certificate(key=key, cert=cert, domain='')
-            else:
-                self.add_certificate(key=cert, cert=cert, domain='')
         self.version = 'v2.0'
         # set baseline defaults
         self.username = None
@@ -106,6 +101,10 @@ class HTTPClient(object):
                 self.verify_cert = cacert
             else:
                 self.verify_cert = True
+        self.cert = cert
+        if cert and key:
+            self.cert = (cert, key,)
+        self.domain=''
 
         # logging setup
         self.debug_log = debug
@@ -318,6 +317,8 @@ class HTTPClient(object):
             request_kwargs['headers']['Content-Type'] = 'application/json'
             request_kwargs['data'] = json.dumps(kwargs['body'])
             del request_kwargs['body']
+        if self.cert:
+            request_kwargs['cert'] = self.cert
 
         self.http_log_req((url, method,), request_kwargs)
         resp = requests.request(
@@ -336,7 +337,7 @@ class HTTPClient(object):
             raise exceptions.from_response(resp, resp.text)
         elif resp.status_code in (301, 302, 305):
             # Redirected. Reissue the request to the new location.
-            return self.request(resp['headers']['location'], method, **kwargs)
+            return self.request(resp.headers['location'], method, **kwargs)
 
         if resp.text:
             try:

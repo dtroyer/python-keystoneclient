@@ -1,6 +1,7 @@
 import copy
 import json
 import mock
+
 import requests
 
 from keystoneclient.v2_0 import client

@@ -8,18 +8,6 @@ from keystoneclient import exceptions
 from tests import utils
 
 
-def to_http_response(resp_dict):
-    """
-    Utility function to convert a python dictionary
-    (e.g. {'status':status, 'body': body, 'headers':headers}
-    to an httplib2 response.
-    """
-    resp = utils.TestResponse(resp_dict)
-#    for k, v in resp_dict['headers'].items():
-#        resp[k] = v
-    return resp
-
-
 class AuthenticateAgainstKeystoneTests(utils.TestCase):
     def setUp(self):
         super(AuthenticateAgainstKeystoneTests, self).setUp()
@@ -69,7 +57,7 @@ class AuthenticateAgainstKeystoneTests(utils.TestCase):
 
         kwargs = copy.copy(self.TEST_REQUEST_BASE)
         kwargs['headers'] = self.TEST_REQUEST_HEADERS
-        kwargs['data']=json.dumps(self.TEST_REQUEST_BODY)
+        kwargs['data'] = json.dumps(self.TEST_REQUEST_BODY)
         requests.request('POST',
                          self.TEST_URL + "/tokens",
                          **kwargs).AndReturn((resp))
@@ -102,21 +90,21 @@ class AuthenticateAgainstKeystoneTests(utils.TestCase):
                 "text": correct_response,
             },
         ]
-        responses = [(to_http_response(resp))
+        responses = [(utils.TestResponse(resp))
                      for resp in dict_responses]
 
         kwargs = copy.copy(self.TEST_REQUEST_BASE)
         kwargs['headers'] = self.TEST_REQUEST_HEADERS
-        kwargs['data']=json.dumps(self.TEST_REQUEST_BODY)
+        kwargs['data'] = json.dumps(self.TEST_REQUEST_BODY)
         requests.request('POST',
                          self.TEST_URL + "/tokens",
                          **kwargs).AndReturn(responses[0])
+        kwargs = copy.copy(self.TEST_REQUEST_BASE)
+        kwargs['headers'] = self.TEST_REQUEST_HEADERS
+        kwargs['data'] = json.dumps(self.TEST_REQUEST_BODY)
         requests.request('POST',
                          self.TEST_ADMIN_URL + "/tokens",
-                         data=json.dumps(self.TEST_REQUEST_BODY),
-                         headers=self.TEST_REQUEST_HEADERS,
-                         verify=True,
-                         ).AndReturn(responses[1])
+                         **kwargs).AndReturn(responses[1])
         self.mox.ReplayAll()
 
         cs = client.Client(username=self.TEST_USER,
@@ -138,7 +126,7 @@ class AuthenticateAgainstKeystoneTests(utils.TestCase):
 
         kwargs = copy.copy(self.TEST_REQUEST_BASE)
         kwargs['headers'] = self.TEST_REQUEST_HEADERS
-        kwargs['data']=json.dumps(self.TEST_REQUEST_BODY)
+        kwargs['data'] = json.dumps(self.TEST_REQUEST_BODY)
         requests.request('POST',
                          self.TEST_URL + "/tokens",
                          **kwargs).AndReturn((resp))
@@ -164,7 +152,7 @@ class AuthenticateAgainstKeystoneTests(utils.TestCase):
 
         kwargs = copy.copy(self.TEST_REQUEST_BASE)
         kwargs['headers'] = self.TEST_REQUEST_HEADERS
-        kwargs['data']=json.dumps(self.TEST_REQUEST_BODY)
+        kwargs['data'] = json.dumps(self.TEST_REQUEST_BODY)
         requests.request('POST',
                          self.TEST_URL + "/tokens",
                          **kwargs).AndReturn((resp))
@@ -188,7 +176,7 @@ class AuthenticateAgainstKeystoneTests(utils.TestCase):
 
         kwargs = copy.copy(self.TEST_REQUEST_BASE)
         kwargs['headers'] = self.TEST_REQUEST_HEADERS
-        kwargs['data']=json.dumps(self.TEST_REQUEST_BODY)
+        kwargs['data'] = json.dumps(self.TEST_REQUEST_BODY)
         requests.request('POST',
                          self.TEST_URL + "/tokens",
                          **kwargs).AndReturn((resp))
@@ -216,7 +204,7 @@ class AuthenticateAgainstKeystoneTests(utils.TestCase):
 
         kwargs = copy.copy(self.TEST_REQUEST_BASE)
         kwargs['headers'] = self.TEST_REQUEST_HEADERS
-        kwargs['data']=json.dumps(self.TEST_REQUEST_BODY)
+        kwargs['data'] = json.dumps(self.TEST_REQUEST_BODY)
         requests.request('POST',
                          self.TEST_URL + "/tokens",
                          **kwargs).AndReturn((resp))
