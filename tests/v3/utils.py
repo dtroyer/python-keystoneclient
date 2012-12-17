@@ -3,8 +3,8 @@ import uuid
 import time
 import urlparse
 
-import httplib2
 import mox
+import requests
 import unittest2 as unittest
 
 from keystoneclient.v3 import client
@@ -32,13 +32,17 @@ class TestCase(unittest.TestCase):
     TEST_URL = '%s%s' % (TEST_ROOT_URL, 'v3')
     TEST_ROOT_ADMIN_URL = 'http://127.0.0.1:35357/'
     TEST_ADMIN_URL = '%s%s' % (TEST_ROOT_ADMIN_URL, 'v3')
+    TEST_REQUEST_BASE = {
+        'config': {'danger_mode': False},
+        'verify': True,
+    }
 
     def setUp(self):
         super(TestCase, self).setUp()
         self.mox = mox.Mox()
         self._original_time = time.time
         time.time = lambda: 1234
-        httplib2.Http.request = self.mox.CreateMockAnything()
+        requests.request = self.mox.CreateMockAnything()
         self.client = client.Client(username=self.TEST_USER,
                                     token=self.TEST_TOKEN,
                                     tenant_name=self.TEST_TENANT_NAME,
@@ -58,13 +62,17 @@ class UnauthenticatedTestCase(unittest.TestCase):
     TEST_URL = '%s%s' % (TEST_ROOT_URL, 'v3')
     TEST_ROOT_ADMIN_URL = 'http://127.0.0.1:35357/'
     TEST_ADMIN_URL = '%s%s' % (TEST_ROOT_ADMIN_URL, 'v3')
+    TEST_REQUEST_BASE = {
+        'config': {'danger_mode': False},
+        'verify': True,
+    }
 
     def setUp(self):
         super(UnauthenticatedTestCase, self).setUp()
         self.mox = mox.Mox()
         self._original_time = time.time
         time.time = lambda: 1234
-        httplib2.Http.request = self.mox.CreateMockAnything()
+        requests.request = self.mox.CreateMockAnything()
 
     def tearDown(self):
         time.time = self._original_time
@@ -106,23 +114,23 @@ class CrudTests(object):
         raise NotImplementedError('Are you sure you want to serialize that?')
 
     def test_create(self, ref=None):
-        ref = ref or self.new_ref()
-        resp = httplib2.Response({
-            'status': 201,
-            'body': self.serialize(ref),
+        ref = ref or self.new_ref(self.TEST_REQUEST_BASE)
+        resp = utils.TestResponse({
+            "status_code": 201,
+            "text": self.serialize(ref),
         })
 
         method = 'POST'
         req_ref = ref.copy()
         req_ref.pop('id')
-        httplib2.Http.request(
+        req_ref['headers'] = self.headers[method]
+        req_ref['data'] = self.serialize(req_ref)
+        requests.request(
+            method,
             urlparse.urljoin(
                 self.TEST_URL,
                 'v3/%s' % self.collection_key),
-            method,
-            body=self.serialize(req_ref),
-            headers=self.headers[method]) \
-            .AndReturn((resp, resp['body']))
+            **req_ref).AndReturn((resp))
         self.mox.ReplayAll()
 
         returned = self.manager.create(**parameterize(req_ref))
@@ -134,19 +142,20 @@ class CrudTests(object):
                 'Expected different %s' % attr)
 
     def test_get(self, ref=None):
-        ref = ref or self.new_ref()
-        resp = httplib2.Response({
-            'status': 200,
-            'body': self.serialize(ref),
+        ref = ref or self.new_ref(self.TEST_REQUEST_BASE)
+        resp = utils.TestResponse({
+            "status_code": 200,
+            "text": self.serialize(ref),
         })
+
         method = 'GET'
-        httplib2.Http.request(
+        req_ref['headers'] = self.headers[method]
+        requests.request(
+            method,
             urlparse.urljoin(
                 self.TEST_URL,
                 'v3/%s/%s' % (self.collection_key, ref['id'])),
-            method,
-            headers=self.headers[method]) \
-            .AndReturn((resp, resp['body']))
+            **req_ref).AndReturn((resp))
         self.mox.ReplayAll()
 
         returned = self.manager.get(ref['id'])
@@ -158,21 +167,23 @@ class CrudTests(object):
                 'Expected different %s' % attr)
 
     def test_list(self, ref_list=None, expected_path=None, **filter_kwargs):
-        ref_list = ref_list or [self.new_ref(), self.new_ref()]
-
-        resp = httplib2.Response({
-            'status': 200,
-            'body': self.serialize(ref_list),
+        ref_list = ref_list or [
+            self.new_ref(self.TEST_REQUEST_BASE),
+            self.new_ref(self.TEST_REQUEST_BASE)
+        ]
+        resp = utils.TestResponse({
+            "status_code": 200,
+            "text": self.serialize(ref_list),
         })
 
         method = 'GET'
-        httplib2.Http.request(
+        req_ref['headers'] = self.headers[method]
+        requests.request(
+            method,
             urlparse.urljoin(
                 self.TEST_URL,
                 expected_path or 'v3/%s' % self.collection_key),
-            method,
-            headers=self.headers[method]) \
-            .AndReturn((resp, resp['body']))
+            **req_ref).AndReturn((resp))
         self.mox.ReplayAll()
 
         returned_list = self.manager.list(**filter_kwargs)
@@ -180,24 +191,23 @@ class CrudTests(object):
         [self.assertTrue(isinstance(r, self.model)) for r in returned_list]
 
     def test_update(self, ref=None):
-        ref = ref or self.new_ref()
+        ref = ref or self.new_ref(self.TEST_REQUEST_BASE)
         req_ref = ref.copy()
         del req_ref['id']
-
-        resp = httplib2.Response({
-            'status': 200,
-            'body': self.serialize(ref),
+        resp = utils.TestResponse({
+            "status_code": 200,
+            "text": self.serialize(ref),
         })
 
         method = 'PATCH'
-        httplib2.Http.request(
+        req_ref['headers'] = self.headers[method]
+        req_ref['data'] = self.serialize(req_ref)
+        requests.request(
+            method,
             urlparse.urljoin(
                 self.TEST_URL,
                 'v3/%s/%s' % (self.collection_key, ref['id'])),
-            method,
-            body=self.serialize(req_ref),
-            headers=self.headers[method]) \
-            .AndReturn((resp, resp['body']))
+            **req_ref).AndReturn((resp))
         self.mox.ReplayAll()
 
         returned = self.manager.update(ref['id'], **parameterize(req_ref))
@@ -209,19 +219,43 @@ class CrudTests(object):
                 'Expected different %s' % attr)
 
     def test_delete(self, ref=None):
-        ref = ref or self.new_ref()
-        method = 'DELETE'
-        resp = httplib2.Response({
-            'status': 204,
-            'body': '',
+        ref = ref or self.new_ref(self.TEST_REQUEST_BASE)
+        resp = utils.TestResponse({
+            "status_code": 204,
+            "text": '',
         })
-        httplib2.Http.request(
+
+        method = 'DELETE'
+        req_ref['headers'] = self.headers[method]
+        requests.request(
+            method,
             urlparse.urljoin(
                 self.TEST_URL,
                 'v3/%s/%s' % (self.collection_key, ref['id'])),
-            method,
-            headers=self.headers[method]) \
-            .AndReturn((resp, resp['body']))
+            **req_ref).AndReturn((resp))
         self.mox.ReplayAll()
 
         self.manager.delete(ref['id'])
+
+
+class TestResponse(requests.Response):
+    """ Class used to wrap requests.Response and provide some
+        convenience to initialize with a dict """
+
+    def __init__(self, data):
+        self._text = None
+        super(TestResponse, self)
+        if isinstance(data, dict):
+            self.status_code = data.get('status_code', None)
+            self.headers = data.get('headers', None)
+            # Fake the text attribute to streamline Response creation
+            self._text = data.get('text', None)
+        else:
+            self.status_code = data
+
+    def __eq__(self, other):
+        return self.__dict__ == other.__dict__
+
+    @property
+    def text(self):
+        return self._text
