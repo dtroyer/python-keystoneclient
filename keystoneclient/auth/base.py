@@ -28,6 +28,22 @@ class BaseAuthPlugin(object):
         """
 
     @abc.abstractmethod
+    def get_endpoint(self, session=None, service_type=None,
+                     endpoint_type=None, **kwargs):
+        """Return an endpoint for the client.
+
+        The endpoint should reflect the type of service required, whether it
+        should use the public, admin or private url.
+
+        :param Session session: The session object that the auth_plugin
+                                belongs to. (optional)
+        :param string service_type: The service type to query the URL for.
+                                    (optional)
+        :param string endpoint_type: The endpoint type to query a URL for.
+                                     (optional)
+        """
+
+    @abc.abstractmethod
     def do_authenticate(self, session, **kwargs):
         """Authenticate and obtain a token.
 

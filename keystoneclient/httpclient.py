@@ -55,6 +55,8 @@ request = client_session.request
 
 class HTTPClient(baseclient.Client, base.BaseIdentityPlugin):
 
+    endpoint_type = 'admin'
+
     def __init__(self, username=None, tenant_id=None, tenant_name=None,
                  password=None, auth_url=None, region_name=None, timeout=None,
                  endpoint=None, token=None, cacert=None, key=None,
@@ -272,6 +274,12 @@ class HTTPClient(baseclient.Client, base.BaseIdentityPlugin):
             return self.auth_ref.auth_token
         if self.auth_token_from_user:
             return self.auth_token_from_user
+
+    def get_endpoint(self, *args, **kwargs):
+        if self._endpoint:
+            return self._endpoint
+
+        return super(HTTPClient, self).get_endpoint(*args, **kwargs)
 
     @auth_token.setter
     def auth_token(self, value):
@@ -617,20 +625,18 @@ class HTTPClient(baseclient.Client, base.BaseIdentityPlugin):
         concatenating self.management_url and url and passing in method and
         any associated kwargs.
         """
-
-        is_management = kwargs.pop('management', True)
-
-        if is_management and self.management_url is None:
-            raise exceptions.AuthorizationFailure(
-                'Current authorization does not have a known management url')
-
-        url_to_use = self.auth_url
-        if is_management:
-            url_to_use = self.management_url
+        if kwargs.pop('management', True):
+            kwargs.setdefault('service_type', 'identity')
+        else:
+            url = "%s/%s" % (self.auth_url.rstrip("/"), url.lstrip("/"))
 
         kwargs.setdefault('authenticated', None)
-        return self.request(url_to_use + url, method,
-                            **kwargs)
+
+        try:
+            return self.request(url, method, **kwargs)
+        except (exceptions.MissingAuthPlugin, exceptions.EndpointNotFound):
+            raise exceptions.AuthorizationFailure(
+                'Current authorization does not have a known management url')
 
     def get(self, url, **kwargs):
         return self._cs_request(url, 'GET', **kwargs)

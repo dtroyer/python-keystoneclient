@@ -96,7 +96,8 @@ class Session(object):
 
     def request(self, url, method, json=None, original_ip=None,
                 user_agent=None, redirect=None, authenticated=None,
-                reauth=None, **kwargs):
+                reauth=None, service_type=None, endpoint_type=None,
+                **kwargs):
         """Send an HTTP request with the specified characteristics.
 
         Wrapper around `requests.Session.request` to handle tasks such as
@@ -125,6 +126,12 @@ class Session(object):
         :param bool reauth: Fetch a new token for an authenticated request if
                             this one will expire before the request can be
                             made. (optional defaults to value passed to init)
+        :param string service_type: The type of service we are communicating
+                                    with. If present it means that the url is
+                                    a path that should be relative to the entry
+                                    for this in the service catalog. (optional)
+        :param string endpoint_type: The endpoint type to retrieve the base url
+                                     for the service_type. (optional)
         :param kwargs: any other parameter that can be passed to
                        requests.Session.request (such as `headers`). Except:
                        'data' will be overwritten by the data in 'json' param.
@@ -165,6 +172,21 @@ class Session(object):
                 raise exceptions.AuthorizationFailure("No token Available")
 
             headers['X-Auth-Token'] = token
+
+        if service_type:
+            if not self.auth:
+                raise exceptions.MissingAuthPlugin("Service Catalog Required")
+
+            base_url = self.auth.get_endpoint(session=self,
+                                              service_type=service_type,
+                                              endpoint_type=endpoint_type)
+
+            if not base_url:
+                raise exceptions.EndpointNotFound()
+
+            # TODO(jamielennox): be cleverer about this, check if url already
+            # has a netloc and what does that mean?
+            url = "%s/%s" % (base_url.rstrip("/"), url.lstrip("/"))
 
         if self.cert:
             kwargs.setdefault('cert', self.cert)
