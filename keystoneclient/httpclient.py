@@ -38,6 +38,8 @@ if not hasattr(urlparse, 'parse_qsl'):
 
 
 from keystoneclient import access
+from keystoneclient.auth.identity import base
+from keystoneclient import baseclient
 from keystoneclient import exceptions
 from keystoneclient.openstack.common import jsonutils
 from keystoneclient import session as client_session
@@ -51,7 +53,7 @@ USER_AGENT = client_session.USER_AGENT
 request = client_session.request
 
 
-class HTTPClient(object):
+class HTTPClient(baseclient.Client, base.BaseIdentityPlugin):
 
     def __init__(self, username=None, tenant_id=None, tenant_name=None,
                  password=None, auth_url=None, region_name=None, timeout=None,
@@ -120,8 +122,9 @@ class HTTPClient(object):
                                communicating with the identity service.
 
         """
-        # set baseline defaults
+        base.BaseIdentityPlugin.__init__(self, auth_url=None)
 
+        # set baseline defaults
         self.user_id = None
         self.username = None
         self.user_domain_id = None
@@ -234,12 +237,13 @@ class HTTPClient(object):
                              "key. Ignoring.")
 
             timeout = float(timeout) if timeout is not None else None
-            session = client_session.Session(verify=verify,
+            session = client_session.Session(auth=self,
+                                             verify=verify,
                                              cert=session_cert,
                                              original_ip=original_ip,
                                              timeout=timeout)
 
-        self.session = session
+        super(HTTPClient, self).__init__(session=session)
         self.domain = ''
         self.debug_log = debug
 
@@ -253,11 +257,18 @@ class HTTPClient(object):
 
     @property
     def auth_token(self):
+        try:
+            return self.get_token()
+        except exceptions.AuthPluginUnauthenticated:
+            self.authenticate()
+            return self.get_token()
+
+    def get_token(self):
         if self._auth_token:
             return self._auth_token
         if self.auth_ref:
             if self.auth_ref.will_expire_soon(self.stale_duration):
-                self.authenticate()
+                raise exceptions.AuthPluginUnauthenticated()
             return self.auth_ref.auth_token
         if self.auth_token_from_user:
             return self.auth_token_from_user
@@ -305,7 +316,7 @@ class HTTPClient(object):
                      project_name=None, project_id=None, user_domain_id=None,
                      user_domain_name=None, project_domain_id=None,
                      project_domain_name=None, trust_id=None,
-                     region_name=None):
+                     region_name=None, session=None):
         """Authenticate user.
 
         Uses the data provided at instantiation to authenticate against
@@ -349,6 +360,7 @@ class HTTPClient(object):
         * if force_new_token is true
 
         """
+        session = session or self.session
         auth_url = auth_url or self.auth_url
         user_id = user_id or self.user_id
         username = username or self.username
@@ -387,23 +399,53 @@ class HTTPClient(object):
             'token': token,
             'trust_id': trust_id,
         }
-        (keyring_key, auth_ref) = self.get_auth_ref_from_keyring(**kwargs)
-        new_token_needed = False
-        if auth_ref is None or self.force_new_token:
-            new_token_needed = True
-            kwargs['password'] = password
-            resp, body = self.get_raw_token_from_identity_service(**kwargs)
 
-            # TODO(jamielennox): passing region_name here is wrong but required
-            # for backwards compatibility. Deprecate and provide warning.
-            self.auth_ref = access.AccessInfo.factory(resp, body,
-                                                      region_name=region_name)
+        (keyring_key, auth_ref) = self.get_auth_ref_from_keyring(**kwargs)
+
+        # NOTE(jamielennox): _auth_ref_processed is a hack to not re-run
+        # processing if it will have already been handled by the
+        # do_authenticate call, (this will be the common case in Legacy mode).
+        self._auth_ref_processed = False
+
+        if auth_ref is None or self.force_new_token:
+            session.authenticate(keyring_key=keyring_key,
+                                 region_name=region_name,
+                                 password=password,
+                                 **kwargs)
+
+            try:
+                self.auth_ref = session.auth.auth_ref
+            except AttributeError:
+                # This is the case where a non-identity auth plugin would be
+                # used by the session. It should never really happen as you
+                # shouldn't be calling authenticate() unless the client object
+                # is the auth plugin (ie Legacy Mode).
+                self.auth_ref = None
         else:
             self.auth_ref = auth_ref
-        self.process_token(region_name=region_name)
-        if new_token_needed:
-            self.store_auth_ref_into_keyring(keyring_key)
+
+        if not self._auth_ref_processed:
+            self.process_token(region_name=region_name)
+
         return True
+
+    def do_authenticate(self, session, keyring_key=None, region_name=None,
+                        **kwargs):
+        resp_data = self.get_raw_token_from_identity_service(session=session,
+                                                             **kwargs)
+
+        if isinstance(resp_data, access.AccessInfo):
+            self.auth_ref = resp_data
+        else:
+            self.auth_ref = access.AccessInfo.factory(*resp_data)
+
+        if keyring_key:
+            self.store_auth_ref_into_keyring(keyring_key)
+
+        region_name = region_name or self.region_name
+        self.process_token(region_name=region_name)
+
+        self._auth_ref_processed = True
 
     def _build_keyring_key(self, **kwargs):
         """Create a unique key for keyring.
@@ -472,23 +514,34 @@ class HTTPClient(object):
         # if we got a response without a service catalog, set the local
         # list of tenants for introspection, and leave to client user
         # to determine what to do. Otherwise, load up the service catalog
-        if self.auth_ref.project_scoped:
-            if not self.auth_ref.tenant_id:
+        if self.auth_ref:
+            if self.auth_ref.project_scoped:
+                if not self.auth_ref.tenant_id:
+                    raise exceptions.AuthorizationFailure(
+                        "Token didn't provide tenant_id")
+                self._process_management_url(region_name)
+                self.project_name = self.auth_ref.tenant_name
+                self.project_id = self.auth_ref.tenant_id
+
+            if not self.auth_ref.user_id:
                 raise exceptions.AuthorizationFailure(
-                    "Token didn't provide tenant_id")
-            self._process_management_url(region_name)
-            self.project_name = self.auth_ref.tenant_name
-            self.project_id = self.auth_ref.tenant_id
+                    "Token didn't provide user_id")
 
-        if not self.auth_ref.user_id:
-            raise exceptions.AuthorizationFailure(
-                "Token didn't provide user_id")
+            self.user_id = self.auth_ref.user_id
 
-        self.user_id = self.auth_ref.user_id
+            self.auth_domain_id = self.auth_ref.domain_id
+            self.auth_tenant_id = self.auth_ref.tenant_id
+            self.auth_user_id = self.auth_ref.user_id
 
-        self.auth_domain_id = self.auth_ref.domain_id
-        self.auth_tenant_id = self.auth_ref.tenant_id
-        self.auth_user_id = self.auth_ref.user_id
+            # NOTE(jamielennox): The original client relies on being able to
+            # push the region name into the service catalog but new auth
+            # plugins dont handle this behaviour so hack it in.
+            if region_name:
+                self.auth_ref.service_catalog._region_name = region_name
+        else:
+            self.auth_domain_id = None
+            self.auth_tenant_id = None
+            self.auth_user_id = None
 
     @property
     def management_url(self):
@@ -501,7 +554,7 @@ class HTTPClient(object):
         # permanently setting _endpoint would better match that behaviour.
         self._endpoint = value
 
-    def get_raw_token_from_identity_service(self, auth_url, username=None,
+    def get_raw_token_from_identity_service(self, auth_url=None, username=None,
                                             password=None, tenant_name=None,
                                             tenant_id=None, token=None,
                                             user_id=None, user_domain_id=None,
@@ -555,7 +608,8 @@ class HTTPClient(object):
         except KeyError:
             pass
 
-        resp = self.session.request(url, method, **kwargs)
+        kwargs.setdefault('authenticated', False)
+        resp = super(HTTPClient, self).request(url, method, **kwargs)
         return resp, self._decode_body(resp)
 
     def _cs_request(self, url, method, **kwargs):
@@ -574,13 +628,9 @@ class HTTPClient(object):
         if is_management:
             url_to_use = self.management_url
 
-        kwargs.setdefault('headers', {})
-        if self.auth_token:
-            kwargs['headers']['X-Auth-Token'] = self.auth_token
-
-        resp, body = self.request(url_to_use + url, method,
-                                  **kwargs)
-        return resp, body
+        kwargs.setdefault('authenticated', None)
+        return self.request(url_to_use + url, method,
+                            **kwargs)
 
     def get(self, url, **kwargs):
         return self._cs_request(url, 'GET', **kwargs)

@@ -17,6 +17,7 @@ import httpretty
 import mock
 import requests
 
+from keystoneclient.auth import base
 from keystoneclient import exceptions
 from keystoneclient import session as client_session
 from keystoneclient.tests import utils
@@ -222,3 +223,79 @@ class RedirectTests(utils.TestCase):
         for r, s in zip(req_resp.history, ses_resp.history):
             self.assertEqual(r.url, s.url)
             self.assertEqual(r.status_code, s.status_code)
+
+
+class AuthPlugin(base.BaseAuthPlugin):
+    """Very simple debug authentication plugin.
+
+    Takes Parameters such that it can throw exceptions at the right times.
+    """
+
+    TEST_TOKEN = 'aToken'
+
+    def __init__(self, unauthenticated=False, token=TEST_TOKEN):
+        self.auth_done = False
+        self.unauthenticated = unauthenticated
+        self.token = token
+
+    def get_token(self):
+        if self.unauthenticated:
+            raise exceptions.AuthPluginUnauthenticated()
+
+        return self.token
+
+    def do_authenticate(self, session, **kwargs):
+        self.auth_done = True
+        self.unauthenticated = False
+
+
+class SessionAuthTests(utils.TestCase):
+
+    TEST_URL = 'http://127.0.0.1:5000/'
+    TEST_JSON = {'hello': 'world'}
+
+    @httpretty.activate
+    def test_auth_plugin_default_with_plugin(self):
+        self.stub_url('GET', base_url=self.TEST_URL, json=self.TEST_JSON)
+
+        # if there is an auth_plugin then it should default to authenticated
+        auth = AuthPlugin()
+        sess = client_session.Session(auth=auth)
+        resp = sess.get(self.TEST_URL)
+        self.assertDictEqual(resp.json(), self.TEST_JSON)
+
+        self.assertRequestHeaderEqual('X-Auth-Token', AuthPlugin.TEST_TOKEN)
+
+    @httpretty.activate
+    def test_auth_plugin_disable(self):
+        self.stub_url('GET', base_url=self.TEST_URL, json=self.TEST_JSON)
+
+        auth = AuthPlugin()
+        sess = client_session.Session(auth=auth)
+        resp = sess.get(self.TEST_URL, authenticated=False)
+        self.assertDictEqual(resp.json(), self.TEST_JSON)
+
+        self.assertRequestHeaderEqual('X-Auth-Token', None)
+
+    def test_without_auth_plugin(self):
+        s = client_session.Session()
+        self.assertRaises(exceptions.MissingAuthPlugin, s.authenticate)
+        self.assertRaises(exceptions.MissingAuthPlugin,
+                          s.get, self.TEST_URL, authenticated=True)
+
+    def test_without_reauth(self):
+        auth = AuthPlugin(unauthenticated=True)
+        sess = client_session.Session(reauth=False, auth=auth)
+        self.assertRaises(exceptions.AuthorizationFailure,
+                          sess.get, self.TEST_URL, authenticated=True)
+
+    @httpretty.activate
+    def test_with_reauth(self):
+        self.stub_url('GET', base_url=self.TEST_URL, json=self.TEST_JSON)
+
+        auth = AuthPlugin(unauthenticated=True)
+        sess = client_session.Session(reauth=True, auth=auth)
+        resp = sess.get(self.TEST_URL, authenticated=True)
+
+        self.assertDictEqual(resp.json(), self.TEST_JSON)
+        self.assertEqual(sess.auth.auth_done, True)

@@ -36,14 +36,16 @@ class Session(object):
     REDIRECT_STATUSES = (301, 302, 303, 305, 307)
     DEFAULT_REDIRECT_LIMIT = 30
 
-    def __init__(self, session=None, original_ip=None, verify=True, cert=None,
-                 timeout=None, user_agent=None,
+    def __init__(self, auth=None, session=None, original_ip=None, verify=True,
+                 cert=None, timeout=None, user_agent=None, reauth=True,
                  redirect=DEFAULT_REDIRECT_LIMIT):
         """Maintains client communication state and common functionality.
 
         As much as possible the parameters to this class reflect and are passed
         directly to the requests library.
 
+        :param auth: An authentication plugin to authenticate the session with.
+                     (optional, defaults to None)
         :param string original_ip: The original IP of the requesting user
                                    which will be sent to identity service in a
                                    'Forwarded' header. (optional)
@@ -65,6 +67,9 @@ class Session(object):
                                   request. If not provided a default is used.
                                   (optional, defaults to
                                   'python-keystoneclient')
+        :param bool reauth: True to reauthenticate with the auth plugin if
+                            authentication is going to expire.
+                            (otpional, defaults to True)
         :param int/bool redirect: Controls the maximum number of redirections
                                   that can be followed by a request. Either an
                                   integer for a specific count or True/False
@@ -73,12 +78,14 @@ class Session(object):
         if not session:
             session = requests.Session()
 
+        self.auth = auth
         self.session = session
         self.original_ip = original_ip
         self.verify = verify
         self.cert = cert
         self.timeout = None
         self.redirect = redirect
+        self.reauth = reauth
 
         if timeout is not None:
             self.timeout = float(timeout)
@@ -88,7 +95,8 @@ class Session(object):
             self.user_agent = user_agent
 
     def request(self, url, method, json=None, original_ip=None,
-                user_agent=None, redirect=None, **kwargs):
+                user_agent=None, redirect=None, authenticated=None,
+                reauth=None, **kwargs):
         """Send an HTTP request with the specified characteristics.
 
         Wrapper around `requests.Session.request` to handle tasks such as
@@ -110,6 +118,13 @@ class Session(object):
                                   can be followed by a request. Either an
                                   integer for a specific count or True/False
                                   for forever/never. (optional)
+        :param bool authenticated: True if a token should be attached to this
+                                   request, False if not or None for attach if
+                                   an auth_plugin is available.
+                                   (optional, defaults to None)
+        :param bool reauth: Fetch a new token for an authenticated request if
+                            this one will expire before the request can be
+                            made. (optional defaults to value passed to init)
         :param kwargs: any other parameter that can be passed to
                        requests.Session.request (such as `headers`). Except:
                        'data' will be overwritten by the data in 'json' param.
@@ -123,6 +138,33 @@ class Session(object):
         """
 
         headers = kwargs.setdefault('headers', dict())
+
+        if authenticated is None:
+            authenticated = self.auth is not None
+
+        if reauth is None:
+            reauth = self.reauth
+
+        if authenticated:
+            if not self.auth:
+                raise exceptions.MissingAuthPlugin("Token Required")
+
+            token = None
+            try:
+                token = self.auth.get_token()
+            except exceptions.AuthPluginUnauthenticated:
+                if reauth:
+                    self.authenticate()
+
+                    try:
+                        token = self.auth.get_token()
+                    except exceptions.AuthPluginUnauthenticated:
+                        pass
+
+            if not token:
+                raise exceptions.AuthorizationFailure("No token Available")
+
+            headers['X-Auth-Token'] = token
 
         if self.cert:
             kwargs.setdefault('cert', self.cert)
@@ -248,3 +290,14 @@ class Session(object):
 
     def patch(self, url, **kwargs):
         return self.request(url, 'PATCH', **kwargs)
+
+    def authenticate(self, **kwargs):
+        """Force the auth plugin to reauthenticate.
+
+        kwargs are passed directly through to the plugin and are defined by
+        the individual plugin.
+        """
+        if not self.auth:
+            raise exceptions.MissingAuthPlugin("No plugin to authenticate")
+
+        return self.auth.do_authenticate(self, **kwargs)
