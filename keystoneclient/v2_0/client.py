@@ -137,7 +137,7 @@ class Client(httpclient.HTTPClient):
         # extensions
         self.ec2 = ec2.CredentialsManager(self)
 
-        if not kwargs.get('session') and self.management_url is None:
+        if self.management_url is None:
             self.authenticate()
 
     def get_raw_token_from_identity_service(self, session, auth_url=None,

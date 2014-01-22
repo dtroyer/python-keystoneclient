@@ -244,6 +244,10 @@ class HTTPClient(baseclient.Client, base.BaseIdentityPlugin):
                                              cert=session_cert,
                                              original_ip=original_ip,
                                              timeout=timeout)
+        else:
+            # Add self if there isn't an auth object yet
+            if not session.auth:
+                session.auth = self
 
         super(HTTPClient, self).__init__(session=session)
         self.domain = ''

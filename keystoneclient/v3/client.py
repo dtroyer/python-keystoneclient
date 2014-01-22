@@ -102,7 +102,7 @@ class Client(httpclient.HTTPClient):
         self.users = users.UserManager(self)
         self.trusts = trusts.TrustManager(self)
 
-        if 'session' not in kwargs and self.management_url is None:
+        if self.management_url is None:
             self.authenticate()
 
     def serialize(self, entity):
