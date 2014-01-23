@@ -34,12 +34,16 @@ import sys
 import keystoneclient
 
 from keystoneclient import access
+from keystoneclient import client
 from keystoneclient.contrib.bootstrap import shell as shell_bootstrap
 from keystoneclient import exceptions as exc
 from keystoneclient.generic import shell as shell_generic
 from keystoneclient.openstack.common import strutils
 from keystoneclient import utils
 from keystoneclient.v2_0 import shell as shell_v2_0
+
+
+DEFAULT_API_VERSION = '2.0'
 
 
 def positive_non_zero_float(argument_value):
@@ -160,7 +164,8 @@ class OpenStackIdentityShell(object):
         parser.add_argument('--os-identity-api-version',
                             metavar='<identity-api-version>',
                             default=env('OS_IDENTITY_API_VERSION',
-                                        'KEYSTONE_VERSION'),
+                                        'KEYSTONE_VERSION',
+                                        default=DEFAULT_API_VERSION),
                             help='Defaults to env[OS_IDENTITY_API_VERSION]'
                                  ' or 2.0')
         parser.add_argument('--os_identity_api_version',
@@ -401,8 +406,9 @@ class OpenStackIdentityShell(object):
             token = None
             if args.os_token and args.os_endpoint:
                 token = args.os_token
-            api_version = options.os_identity_api_version
-            self.cs = self.get_api_class(api_version)(
+            self.cs = client.Client(
+                version=api_version,
+                unstable=False,
                 username=args.os_username,
                 tenant_name=args.os_tenant_name,
                 tenant_id=args.os_tenant_id,
